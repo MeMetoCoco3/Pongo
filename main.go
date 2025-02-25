@@ -71,7 +71,7 @@ func main() {
 			Killer:    false,
 		}, {
 			Center:    rl.Vector2{SCREENWIDTH - 50, SCREENHEIGHT / 2},
-			Direction: rl.Vector2{X: 10, Y: 7},
+			Direction: rl.Vector2{X: 5, Y: 4},
 			Team:      Yan,
 			Killer:    false,
 		},
