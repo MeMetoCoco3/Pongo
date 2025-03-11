@@ -56,17 +56,25 @@ func CheckBallRectangleCollision(ball *Ball, brick *Rectangle) (bool, rl.Vector2
 func HandleBallBrickCollision(ball *Ball, brick *Rectangle, collisionPoint rl.Vector2) {
 	brick.Toggle()
 
-	// If the ball is up or down the brick, deltaY will be bigger than deltaX
-	// Because, think about lines, if the center on X match to the colision point, means, in this case
-	// That the center on Y does not (if not they would be one on top of the other)
-	deltaX := math.Abs(float64(collisionPoint.X - ball.Center.X))
-	deltaY := math.Abs(float64(collisionPoint.Y - ball.Center.Y))
+	// Calculate normal vector from collision point to ball center
+	normalX := ball.Center.X - collisionPoint.X
+	normalY := ball.Center.Y - collisionPoint.Y
 
-	if deltaX > deltaY {
-		ball.Direction.X = -ball.Direction.X
-	} else {
-		ball.Direction.Y = -ball.Direction.Y
+	// Normalize the vector
+	length := float32(math.Sqrt(float64(normalX*normalX + normalY*normalY)))
+	if length > 0 {
+		normalX /= length
+		normalY /= length
 	}
+
+	// Move ball away from brick
+	ball.Center.X = collisionPoint.X + normalX*(RADIUS+1)
+	ball.Center.Y = collisionPoint.Y + normalY*(RADIUS+1)
+
+	dotProduct := ball.Direction.X*normalX + ball.Direction.Y*normalY
+	ball.Direction.X = ball.Direction.X - 2*dotProduct*normalX
+	ball.Direction.Y = ball.Direction.Y - 2*dotProduct*normalY
+	ball.KillFrames = 1
 }
 
 func (r *Rectangle) Toggle() {
@@ -75,4 +83,8 @@ func (r *Rectangle) Toggle() {
 		return
 	}
 	r.Team = Yin
+}
+
+func DrawLineVec2(x rl.Vector2, y rl.Vector2, c rl.Color) {
+	rl.DrawLine(int32(x.X), int32(x.Y), int32(y.X), int32(y.Y), c)
 }

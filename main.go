@@ -1,7 +1,7 @@
 package main
 
 import (
-	"time"
+	"log"
 
 	rl "github.com/gen2brain/raylib-go/raylib"
 )
@@ -11,6 +11,14 @@ const (
 	SCREENHEIGHT   = 600
 	RECTANGLE_SIZE = 30
 	RADIUS         = 16
+)
+
+type State int
+
+const (
+	PAUSE State = iota
+	PLAY
+	NEWBALL
 )
 
 type Team int
@@ -25,11 +33,19 @@ var (
 	yanC = rl.Color{R: 51, G: 51, B: 51, A: 255}
 )
 
+type Game struct {
+	State           State
+	PressPosition   rl.Vector2
+	ReleasePosition rl.Vector2
+	balls           []Ball
+	field           [20][20]Rectangle
+}
+
 type Ball struct {
-	Team      Team
-	Center    rl.Vector2
-	Direction rl.Vector2
-	Killer    bool
+	Team       Team
+	Center     rl.Vector2
+	Direction  rl.Vector2
+	KillFrames int
 }
 
 type Rectangle struct {
@@ -65,16 +81,22 @@ func main() {
 
 	balls := []Ball{
 		{
-			Center:    rl.Vector2{50, SCREENHEIGHT / 2},
-			Direction: rl.Vector2{X: 5, Y: 2},
-			Team:      Yin,
-			Killer:    false,
+			Center:     rl.Vector2{50, SCREENHEIGHT / 2},
+			Direction:  rl.Vector2{X: 5, Y: 2},
+			Team:       Yin,
+			KillFrames: 2,
 		}, {
-			Center:    rl.Vector2{SCREENWIDTH - 50, SCREENHEIGHT / 2},
-			Direction: rl.Vector2{X: 5, Y: 4},
-			Team:      Yan,
-			Killer:    false,
+			Center:     rl.Vector2{SCREENWIDTH - 50, SCREENHEIGHT / 2},
+			Direction:  rl.Vector2{X: 5, Y: 4},
+			Team:       Yan,
+			KillFrames: 2,
 		},
+	}
+	game := Game{
+		PAUSE,
+		rl.Vector2{0, 0},
+		rl.Vector2{0, 0},
+		balls, Field,
 	}
 
 	rl.SetTargetFPS(60)
@@ -84,36 +106,34 @@ func main() {
 	// ==========================================
 
 	for !rl.WindowShouldClose() {
+		game.GetInput()
+		if game.State != PAUSE {
+			for i := range game.balls {
+				if game.balls[i].Center.X-RADIUS <= 0 || game.balls[i].Center.X+RADIUS >= SCREENWIDTH {
+					game.balls[i].Direction.X = -game.balls[i].Direction.X
+				} else if game.balls[i].Center.Y-RADIUS <= 0 || game.balls[i].Center.Y+RADIUS >= SCREENHEIGHT {
+					game.balls[i].Direction.Y = -game.balls[i].Direction.Y
+				}
+				// I use double Direction in hopes of getting farther from the border.
+				game.balls[i].Center = Adition(game.balls[i].Center, ProductScalar(2, game.balls[i].Direction))
 
-		for i := range balls {
-			if balls[i].Center.X-RADIUS <= 0 || balls[i].Center.X+RADIUS >= SCREENWIDTH {
-				balls[i].Direction.X = -balls[i].Direction.X
-			} else if balls[i].Center.Y-RADIUS <= 0 || balls[i].Center.Y+RADIUS >= SCREENHEIGHT {
-				balls[i].Direction.Y = -balls[i].Direction.Y
 			}
-			// I use double Direction in hopes of getting farther from the border.
-			balls[i].Center = Adition(balls[i].Center, ProductScalar(2, balls[i].Direction))
 
-		}
-
-		for i := 0; i < 20; i++ {
-			for j := 0; j < 20; j++ {
-				for b := 0; b < len(balls); b++ {
-					if Field[i][j].Team == balls[b].Team || balls[b].Killer {
-						continue
+			for i := 0; i < 20; i++ {
+				for j := 0; j < 20; j++ {
+					for b := 0; b < len(game.balls); b++ {
+						if game.field[i][j].Team == game.balls[b].Team || game.balls[b].KillFrames > 0 {
+							game.balls[b].KillFrames--
+							continue
+						}
+						collide, collisionPoint := CheckBallRectangleCollision(
+							&game.balls[b],
+							&game.field[i][j])
+						if !collide {
+							continue
+						}
+						HandleBallBrickCollision(&game.balls[b], &game.field[i][j], collisionPoint)
 					}
-					collide, collisionPoint := CheckBallRectangleCollision(
-						&balls[b],
-						&Field[i][j])
-					if !collide {
-						continue
-					}
-					HandleBallBrickCollision(&balls[b], &Field[i][j], collisionPoint)
-					balls[b].Killer = true
-					go func() {
-						time.Sleep(time.Millisecond * 10)
-						balls[b].Killer = false
-					}()
 				}
 			}
 		}
@@ -124,27 +144,71 @@ func main() {
 			for j := 0; j < 20; j++ {
 				var color rl.Color
 
-				if Field[i][j].Team == Yin {
+				if game.field[i][j].Team == Yin {
 					color = yinC
 				} else {
 					color = yanC
 				}
 
-				rl.DrawRectangleRec(Field[i][j].Rectangle, color)
+				rl.DrawRectangleRec(game.field[i][j].Rectangle, color)
 			}
 		}
-		for i := range balls {
+		for i := range game.balls {
 			var color rl.Color
 
-			if balls[i].Team == Yin {
+			if game.balls[i].Team == Yin {
 				color = yanC
 			} else {
 				color = yinC
 			}
 
-			rl.DrawCircle(int32(balls[i].Center.X), int32(balls[i].Center.Y), RADIUS, color)
+			rl.DrawCircle(int32(game.balls[i].Center.X), int32(game.balls[i].Center.Y), RADIUS, color)
+		}
+
+		if game.State == NEWBALL {
+			DrawLineVec2(game.PressPosition, game.ReleasePosition, rl.Red)
 		}
 
 		rl.EndDrawing()
+	}
+}
+
+func (g *Game) GetInput() {
+	if rl.IsKeyPressed(rl.KeySpace) {
+		log.Println("SPACE")
+		if g.State == PAUSE {
+			g.State = PLAY
+		} else {
+			g.State = PAUSE
+		}
+	}
+	if rl.IsMouseButtonPressed(rl.MouseButtonLeft) {
+		g.State = NEWBALL
+		g.PressPosition = rl.GetMousePosition()
+	}
+
+	if g.State == NEWBALL && rl.IsMouseButtonDown(rl.MouseButtonLeft) {
+		g.ReleasePosition = rl.GetMousePosition()
+		return
+	}
+
+	if g.State == NEWBALL {
+		newDir := rl.Vector2{
+			(g.ReleasePosition.X - g.PressPosition.X) / 100,
+			(g.ReleasePosition.Y - g.PressPosition.Y) / 100,
+		}
+		ix := int(g.PressPosition.X / RECTANGLE_SIZE)
+		iy := int(g.PressPosition.Y / RECTANGLE_SIZE)
+
+		team := g.field[iy][ix].Team
+
+		newBall := Ball{
+			Center:     g.PressPosition,
+			Direction:  newDir,
+			Team:       team,
+			KillFrames: 1,
+		}
+		g.balls = append(g.balls, newBall)
+		g.State = PLAY
 	}
 }
